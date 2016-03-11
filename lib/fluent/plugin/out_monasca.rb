@@ -1,8 +1,9 @@
 # encoding: UTF-8
 require 'date'
-require 'excon'
 require 'uri'
-require 'logstash-output-monasca_log_api'
+
+require_relative './monasca/monasca_log_api_client'
+require_relative './keystone/keystone_client'
 
 begin
   require 'strptime'
@@ -11,9 +12,6 @@ end
 
 class Fluent::MonascaOutput < Fluent::BufferedOutput
   Fluent::Plugin.register_output('monasca', self)
-
-  include LogStash::Outputs::Keystone
-  include LogStash::Outputs::Monasca
 
   config_param :keystone_url, :string
   config_param :monasca_log_api, :string
@@ -32,10 +30,10 @@ class Fluent::MonascaOutput < Fluent::BufferedOutput
 
   def initialize
     super
-    @keystone_client = KeystoneClient.new @keystone_url
-    @monasca_log_api_client = MonascaLogApiClient.new @monasca_log_api, @monasca_log_api_version
-    @token = authenticate
-    @logger.inf('Authenticated keystone user:', username: @username, project_name: @project_name)
+    # @keystone_client = Keystone::Client.new @keystone_url
+    # @monasca_log_api_client = MonascaLogApiClient.new @monasca_log_api, @monasca_log_api_version
+    # @token = authenticate
+    # @logger.inf('Authenticated keystone user:', username: @username, project_name: @project_name)
   end
 
   # open connection to monasca.
@@ -54,7 +52,8 @@ class Fluent::MonascaOutput < Fluent::BufferedOutput
   end
 
   # write the buffered chunk to monasca
-  def write(chunk)
+  def write(_chunk)
+    log.debug('${chunk}')
   end
 
   # send the log message to monasca
