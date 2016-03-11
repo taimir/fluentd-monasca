@@ -2,8 +2,9 @@
 Fluentd output plugin for monasca
 
 ### Requirements
-* jruby
-* bundler (ruby gem)
+* `jruby`
+* `jruby-head`
+* `bundler` (ruby gem)
 
 Use jruby:
 `rvm use jruby`
