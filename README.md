@@ -10,5 +10,5 @@ Install gem:
 `gem install fluentd-monasca-output-<version>.gem`
 `td-agent-gem install fluentd-monasca-output`
 
-Configure your td-config.yaml, etc...
+Configure your `td-agent.conf`, etc...
 
