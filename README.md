@@ -2,12 +2,13 @@
 Fluentd output plugin for monasca
 
 ### Requirements
-* `jruby`
-* `jruby-head`
-* `bundler` (ruby gem)
-
-Use jruby:
-`rvm use jruby`
+* ruby
+* td-agent
 
 Install gem:
-`bundle install`
+`gem build fluentd-monasca-output.gemspec`
+`gem install fluentd-monasca-output-<version>.gem`
+`td-agent-gem install fluentd-monasca-output`
+
+Configure your td-config.yaml, etc...
+
