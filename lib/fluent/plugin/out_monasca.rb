@@ -10,7 +10,7 @@ begin
 rescue LoadError
 end
 
-class Fluent::MonascaOutput < Fluent::BufferedOutput
+class Fluent::MonascaOutput < Fluent::Output
   Fluent::Plugin.register_output('monasca', self)
 
   config_param :keystone_url, :string
@@ -30,16 +30,16 @@ class Fluent::MonascaOutput < Fluent::BufferedOutput
 
   def initialize
     super
-    # @keystone_client = Keystone::Client.new @keystone_url
-    # @monasca_log_api_client = MonascaLogApiClient.new @monasca_log_api, @monasca_log_api_version
-    # @token = authenticate
-    # @logger.inf('Authenticated keystone user:', username: @username, project_name: @project_name)
   end
 
-  # open connection to monasca.
   # initialize client
+  # open connection to monasca.
   def start
     super
+    @keystone_client = Keystone::Client.new @keystone_url, @log
+    @monasca_log_api_client = Monasca::get_log_api_client @monasca_log_api, @monasca_log_api_version, @log
+    @token = authenticate
+    @log.info('Authenticated keystone user:', username: @username, project_name: @project_name)
   end
 
   # shut down the plugin.
@@ -51,13 +51,16 @@ class Fluent::MonascaOutput < Fluent::BufferedOutput
   def format(tag, time, record)
   end
 
-  # write the buffered chunk to monasca
-  def write(_chunk)
-    log.debug('${chunk}')
-  end
-
-  # send the log message to monasca
-  def send(data)
+  # Unbuffered outputs use emit.
+  def emit(tag, es, chain)
+    validate_token
+    chain.next
+    es.each {|time,record|
+      # Assume that all non-message keys are dimensions.
+      message = record.delete("message")
+      dimensions = record
+      send_log message, dimensions
+    }
   end
 
   private
@@ -74,7 +77,7 @@ class Fluent::MonascaOutput < Fluent::BufferedOutput
     @keystone_client.authenticate(@domain_id, @username, @password, @project_name)
   end
 
-  def send_log(data, dimensions)
-    @monasca_log_api_client.send_event(nil, data, @token.id, dimensions, 'application: json') if @token.id && data
+  def send_log(message, dimensions)
+    @monasca_log_api_client.send_log(message, @token.id, dimensions) if @token.id && message
   end
 end
