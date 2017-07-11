@@ -10,7 +10,7 @@ begin
 rescue LoadError
 end
 
-class Fluent::MonascaOutput < Fluent::Output
+class Fluent::MonascaOutput < Fluent::BufferedOutput
   Fluent::Plugin.register_output('monasca', self)
 
   config_param :keystone_url, :string
@@ -47,19 +47,24 @@ class Fluent::MonascaOutput < Fluent::Output
     super
   end
 
-  # handle fluentd event
-  def format(tag, time, record)
+  # This method is called when an event stream reaches Fluentd.
+  # Convert the event to a raw string using messagepack.
+  def format_stream(tag, es)
+    # es is a Fluent::OneEventStream or Fluent::MultiEventStream.
+    # Each event item gets serialised as a [timestamp, record] array.
+    [tag, es.to_msgpack_stream].to_msgpack
   end
 
-  # Unbuffered outputs use emit.
-  def emit(tag, es, chain)
+  # Buffered outputs use write.
+  def write(chunk)
+    # chunk is a Fluent::MemoryBufferChunk or Fluent::FileBufferChunk.
     validate_token
-    chain.next
-    es.each {|time,record|
-      # Assume that all non-message keys are dimensions.
-      message = record.delete("message")
-      dimensions = record
-      send_log message, dimensions
+    chunk.msgpack_each {|tag, data|
+      es = Fluent::MessagePackEventStream.new(data)
+      es.each {|time,record|
+        message, dimensions = convert_record tag, record
+        send_log message, dimensions
+      }
     }
   end
 
@@ -75,6 +80,15 @@ class Fluent::MonascaOutput < Fluent::Output
 
   def authenticate
     @keystone_client.authenticate(@domain_id, @username, @password, @project_name)
+  end
+
+  # Convert a record into a [message, dimensions] pair.
+  def convert_record(tag, record)
+    # Assume that all non-message items in the record are dimensions.
+    message = record.delete("message")
+    dimensions = record
+    dimensions["tag"] = tag
+    [message, dimensions]
   end
 
   def send_log(message, dimensions)
