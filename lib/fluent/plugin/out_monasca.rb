@@ -59,13 +59,12 @@ class Fluent::MonascaOutput < Fluent::BufferedOutput
   def write(chunk)
     # chunk is a Fluent::MemoryBufferChunk or Fluent::FileBufferChunk.
     validate_token
-    chunk.msgpack_each {|tag, data|
-      es = Fluent::MessagePackEventStream.new(data)
-      es.each {|time,record|
-        message, dimensions = convert_record tag, record
-        send_log message, dimensions
-      }
-    }
+    # Send the events in bulk if possible.
+    if @monasca_log_api_client.supports_bulk?
+      write_bulk chunk
+    else
+      write_single chunk
+    end
   end
 
   private
@@ -91,7 +90,33 @@ class Fluent::MonascaOutput < Fluent::BufferedOutput
     [message, dimensions]
   end
 
+  def write_bulk(chunk)
+    logs = []
+    chunk.msgpack_each {|tag, data|
+      es = Fluent::MessagePackEventStream.new(data)
+      logs << es.map {|time,record|
+        convert_record tag, record
+      }
+    }
+    logs.flatten!(1)
+    send_logs_bulk logs, {}
+  end
+
+  def write_single(chunk)
+    chunk.msgpack_each {|tag, data|
+      es = Fluent::MessagePackEventStream.new(data)
+      es.each {|time,record|
+        message, dimensions = convert_record tag, record
+        send_log message, dimensions
+      }
+    }
+  end
+
   def send_log(message, dimensions)
     @monasca_log_api_client.send_log(message, @token.id, dimensions) if @token.id && message
+  end
+
+  def send_logs_bulk(logs, dimensions)
+    @monasca_log_api_client.send_logs_bulk(logs, @token.id, dimensions) if @token.id && logs
   end
 end

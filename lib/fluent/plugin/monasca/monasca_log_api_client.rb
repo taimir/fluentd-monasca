@@ -27,6 +27,12 @@ module Monasca
       @log = log
     end
 
+    # Return whether the client supports bulk log message transmission.
+    # If true, the client should implement a send_logs_bulk method.
+    def supports_bulk?
+      false
+    end
+
     # Send logs to monasca-log-api, requires token
     def send_log(message, token, dimensions, application_type = nil)
       request(message, token, dimensions, application_type)
@@ -34,6 +40,11 @@ module Monasca
     rescue => e
       @log.warn('Sending message to monasca-log-api threw exception', exceptionew: e)
     end
+
+    # Send multiple logs to monasca-log-api, requires token
+    # logs should be an Array of Arrays: [[message, dimensions], ...]
+    #def send_logs_bulk(logs, token,  dimensions, application_type = nil)
+    #end
 
     #private
 
@@ -70,6 +81,21 @@ module Monasca
   # Monasca log API V3.0 client.
   class LogAPIV3Client < BaseLogAPIClient
 
+    # Return whether the client supports bulk log message transmission.
+    # If true, the client should implement a send_logs_bulk method.
+    def supports_bulk?
+      true
+    end
+
+    # Send multiple logs to monasca-log-api, requires token
+    # logs should be an Array of Arrays: [[message, dimensions], ...]
+    def send_logs_bulk(logs, token, dimensions, application_type = nil)
+      request_bulk(logs, token, dimensions, application_type)
+      @log.debug("Successfully sent bulk logs, with token=#{token} and dimensions=#{dimensions} to monasca-log-api")
+    rescue => e
+      @log.warn('Bulk sending messages to monasca-log-api threw exception', exceptionew: e)
+    end
+
     private
 
     def request(message, token, dimensions, application_type)
@@ -86,6 +112,28 @@ module Monasca
           # Currently monasca errors if per-message dimensions are omitted.
           "dimensions" => {}
         }]
+      }.to_json
+
+      @rest_client['logs'].post(data, post_headers)
+    end
+
+    # logs should be an Array of Arrays: [[message, dimensions], ...]
+    def request_bulk(logs, token, dimensions, application_type)
+      # NOTE: X-ApplicationType is not supported for V3 API.
+      post_headers = {
+        x_auth_token: token,
+        content_type: 'application/json'
+      }
+
+      data = {
+        "dimensions" => dimensions,
+        "logs" => logs.map {|message, log_dimensions|
+          {
+            "message" => message,
+            # Currently monasca errors if per-message dimensions are omitted.
+            "dimensions" => log_dimensions,
+          }
+        }
       }.to_json
 
       @rest_client['logs'].post(data, post_headers)
