@@ -72,7 +72,7 @@ class Fluent::MonascaOutput < Fluent::BufferedOutput
   def validate_token
     now = DateTime.now + Rational(1, 1440)
     if now >= @token.expire_at
-      @logger.info('Token #{@token} has expired. Issue a new one.')
+      @log.info('Token #{@token} has expired. Issue a new one.')
       @token = get_token
     end
   end
