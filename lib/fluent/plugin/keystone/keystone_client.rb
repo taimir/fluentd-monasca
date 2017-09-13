@@ -11,8 +11,6 @@
 # the License.
 
 # encoding: utf-8
-require 'logger'
-
 require_relative '../helper/url_helper'
 require_relative './token'
 
@@ -21,9 +19,11 @@ require_relative './token'
 module Keystone
   class Client
     @client = nil
+    @log = nil
 
-    def initialize(host)
+    def initialize(host, log)
       @client = get_client(host, '/v3/auth/tokens')
+      @log = log
     end
 
     def authenticate(domain_id, username, password, project_name)
@@ -50,7 +50,7 @@ module Keystone
       case response.code
       when 201
         expires_at = DateTime.parse(JSON.parse(response.body)['token']['expires_at'])
-        log.debug("Authentication succeed: code=#{response.code}, auth-token=#{response.headers[:x_subject_token]}, expires_at=#{expires_at.to_time}")
+        @log.debug("Authentication succeed: code=#{response.code}, auth-token=#{response.headers[:x_subject_token]}, expires_at=#{expires_at.to_time}")
         Token.new(response.headers[:x_subject_token], expires_at)
       end
     end

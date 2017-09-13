@@ -9,53 +9,147 @@
 
 # encoding: utf-8
 
+require 'json'
 require 'rest-client'
-require 'logger'
 
 # relative requirements
 require_relative '../helper/url_helper'
 
-# This class creates a connection to monasca-api
 module Monasca
-  class MonascaLogApiClient
-    SUPPORTED_API_VERSION = %w(2.0).freeze
 
-    def initialize(host, version)
-      @rest_client_url = Helper::UrlHelper.generate_url(host, '/' + check_version(version)).to_s
+  # Base class for Monasca log API clients. Subclasses should implement a
+  # request method.
+  class BaseLogAPIClient
+
+    def initialize(host, version, log)
+      @rest_client_url = Helper::UrlHelper.generate_url(host, '/' + version).to_s
       @rest_client = RestClient::Resource.new(@rest_client_url)
+      @log = log
     end
 
-    # Send log events to monasca-api, requires token
-    def send_event(event, data, token, dimensions, application_type = nil)
-      request(event, data, token, dimensions, application_type)
-      log.debug("Successfully send event=#{event}, with token=#{token} and dimensions=#{dimensions} to monasca-api")
+    # Return whether the client supports bulk log message transmission.
+    # If true, the client should implement a send_logs_bulk method.
+    def supports_bulk?
+      false
+    end
+
+    # Send logs to monasca-log-api, requires token
+    def send_log(message, token, dimensions, application_type = nil)
+      request(message, token, dimensions, application_type)
+      @log.debug("Successfully sent log=#{message}, with token=#{token} and dimensions=#{dimensions} to monasca-log-api")
     rescue => e
-      log.warn('Sending event to monasca-log-api threw exception', exceptionew: e)
+      @log.warn('Sending message to monasca-log-api threw exception', exceptionew: e)
+    end
+
+    # Send multiple logs to monasca-log-api, requires token
+    # logs should be an Array of Arrays: [[message, dimensions], ...]
+    #def send_logs_bulk(logs, token,  dimensions, application_type = nil)
+    #end
+
+    #private
+
+    #def request(message, token, dimensions, application_type)
+    #end
+  end
+
+  # Monasca log API V2.0 client.
+  class LogAPIV2Client < BaseLogAPIClient
+
+    private
+
+    def request(message, token, dimensions, application_type)
+      post_headers = {
+        x_auth_token: token,
+        content_type: 'text/plain'
+      }
+
+      # Dimensions should be a comma-separated list of comma-separated
+      # key-value pairs.
+      if dimensions
+        joined = dimensions.map do |k, v|
+          [k, v].join(':')
+        end
+        post_headers[:x_dimensions] = joined.join(',')
+      end
+
+      post_headers[:x_application_type] = application_type if application_type
+
+      @rest_client['log']['single'].post(message, post_headers)
+    end
+  end
+
+  # Monasca log API V3.0 client.
+  class LogAPIV3Client < BaseLogAPIClient
+
+    # Return whether the client supports bulk log message transmission.
+    # If true, the client should implement a send_logs_bulk method.
+    def supports_bulk?
+      true
+    end
+
+    # Send multiple logs to monasca-log-api, requires token
+    # logs should be an Array of Arrays: [[message, dimensions], ...]
+    def send_logs_bulk(logs, token, dimensions, application_type = nil)
+      request_bulk(logs, token, dimensions, application_type)
+      @log.debug("Successfully sent bulk logs, with token=#{token} and dimensions=#{dimensions} to monasca-log-api")
+    rescue => e
+      @log.warn('Bulk sending messages to monasca-log-api threw exception', exceptionew: e)
     end
 
     private
 
-    def request(_event, data, token, dimensions, application_type)
+    def request(message, token, dimensions, application_type)
+      # NOTE: X-ApplicationType is not supported for V3 API.
       post_headers = {
         x_auth_token: token,
         content_type: 'application/json'
       }
-      post_headers[:x_dimensions] = dimensions if dimensions
 
-      post_headers[:x_application_type] = application_type if application_type
+      data = {
+        "dimensions" => dimensions,
+        "logs" => [{
+          "message" => message,
+          # Currently monasca errors if per-message dimensions are omitted.
+          "dimensions" => {}
+        }]
+      }.to_json
 
-      log.debug('Sending data to ', url: @rest_client_url)
-      @rest_client['log']['single'].post(data, post_headers)
+      @rest_client['logs'].post(data, post_headers)
     end
 
-    def check_version(version)
-      tmp_version = version.sub('v', '')
+    # logs should be an Array of Arrays: [[message, dimensions], ...]
+    def request_bulk(logs, token, dimensions, application_type)
+      # NOTE: X-ApplicationType is not supported for V3 API.
+      post_headers = {
+        x_auth_token: token,
+        content_type: 'application/json'
+      }
 
-      unless SUPPORTED_API_VERSION.include? tmp_version
-        raise "#{tmp_version} is not supported, supported versions are #{SUPPORTED_API_VERSION}"
-      end
+      data = {
+        "dimensions" => dimensions,
+        "logs" => logs.map {|message, log_dimensions|
+          {
+            "message" => message,
+            # Currently monasca errors if per-message dimensions are omitted.
+            "dimensions" => log_dimensions,
+          }
+        }
+      }.to_json
 
-      version
+      @rest_client['logs'].post(data, post_headers)
+    end
+  end
+
+  # Create and return a monasca log API client suitable for the requested API
+  # version.
+  def self.get_log_api_client(host, version, log)
+    tmp_version = version.sub('v', '')
+    if tmp_version == '2.0'
+      LogAPIV2Client.new(host, version, log)
+    elsif tmp_version == '3.0'
+      LogAPIV3Client.new(host, version, log)
+    else
+      raise "#{tmp_version} is not supported, supported versions are 2.0, 3.0"
     end
   end
 end
